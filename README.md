@@ -2,6 +2,8 @@
 
 A Go library for executing commands in isolated/restricted environments.
 
+📚 **[Full Documentation](docs/README.md)** - Detailed guides for each runner type.
+
 ## Overview
 
 `go-restricted-runner` provides a unified interface for running shell commands with various levels of isolation and security restrictions. It supports multiple execution backends:
