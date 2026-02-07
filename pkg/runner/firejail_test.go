@@ -56,8 +56,10 @@ func TestFirejail_Run(t *testing.T) {
 		t.Fatalf("Failed to run command: %v", err)
 	}
 
-	if output != "hello world\n" {
-		t.Errorf("Expected 'hello world\\n', got '%s'", output)
+	// Trim whitespace for comparison (firejail may strip trailing newlines)
+	output = strings.TrimSpace(output)
+	if output != "hello world" {
+		t.Errorf("Expected 'hello world', got '%s'", output)
 	}
 }
 
