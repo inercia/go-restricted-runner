@@ -4,6 +4,10 @@ This documentation provides detailed information about the different runner type
 
 ## Table of Contents
 
+### Core Concepts
+
+- **[Interactive Process Communication (RunWithPipes)](run-with-pipes.md)** - Guide for using stdin/stdout/stderr pipes with long-running and interactive processes
+
 ### Runner Types
 
 | Runner | Platform | Isolation Level | Description |
