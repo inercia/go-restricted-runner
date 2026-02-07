@@ -51,6 +51,74 @@ jobs:
           files: ./coverage.txt
           fail_ci_if_error: false
 
+  test-linux-runners:
+    name: Test Linux-specific Runners
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check Landlock availability
+        run: |
+          echo "=== Checking Landlock availability ==="
+          uname -r
+          if [ -f /boot/config-$(uname -r) ]; then
+            echo "Checking kernel config for Landlock..."
+            grep -i landlock /boot/config-$(uname -r) || echo "Landlock config not found in /boot/config"
+          fi
+          if [ -f /proc/config.gz ]; then
+            echo "Checking /proc/config.gz for Landlock..."
+            zgrep -i landlock /proc/config.gz || echo "Landlock config not found in /proc/config.gz"
+          fi
+          if [ -f /sys/kernel/security/lsm ]; then
+            echo "LSM list:"
+            cat /sys/kernel/security/lsm
+          fi
+
+      - name: Install firejail
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y firejail
+
+      - name: Run Landrun tests
+        run: |
+          echo "=== Running Landrun tests ==="
+          go test -v -run TestLandrun ./pkg/runner/
+
+      - name: Run Firejail tests
+        run: |
+          echo "=== Running Firejail tests ==="
+          go test -v -run TestFirejail ./pkg/runner/
+
+      - name: Run integration tests
+        run: |
+          echo "=== Running integration tests ==="
+          go test -v -run Integration ./pkg/runner/
+
+      - name: Run benchmarks
+        run: |
+          echo "=== Running benchmarks ==="
+          go test -bench=. -benchtime=1s ./pkg/runner/ || true
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
