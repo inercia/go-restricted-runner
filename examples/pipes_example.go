@@ -30,13 +30,21 @@ func main() {
 	}
 
 	// Send input
-	fmt.Fprintln(stdin, "Hello from RunWithPipes!")
-	fmt.Fprintln(stdin, "This is interactive communication.")
-	stdin.Close()
+	if _, err := fmt.Fprintln(stdin, "Hello from RunWithPipes!"); err != nil {
+		log.Printf("Warning: failed to write to stdin: %v", err)
+	}
+	if _, err := fmt.Fprintln(stdin, "This is interactive communication."); err != nil {
+		log.Printf("Warning: failed to write to stdin: %v", err)
+	}
+	if err := stdin.Close(); err != nil {
+		log.Printf("Warning: failed to close stdin: %v", err)
+	}
 
 	// Read output
 	output, _ := io.ReadAll(stdout)
-	io.ReadAll(stderr)
+	if _, err := io.ReadAll(stderr); err != nil {
+		log.Printf("Warning: failed to read stderr: %v", err)
+	}
 
 	// Wait for completion
 	if err := wait(); err != nil {
@@ -58,10 +66,16 @@ func main() {
 		log.Fatal(err)
 	}
 
-	stdin2.Close()
+	if err := stdin2.Close(); err != nil {
+		log.Printf("Warning: failed to close stdin: %v", err)
+	}
 	output2, _ := io.ReadAll(stdout2)
-	io.ReadAll(stderr2)
-	wait2()
+	if _, err := io.ReadAll(stderr2); err != nil {
+		log.Printf("Warning: failed to read stderr: %v", err)
+	}
+	if err := wait2(); err != nil {
+		log.Printf("Warning: process error: %v", err)
+	}
 
 	fmt.Print(string(output2))
 

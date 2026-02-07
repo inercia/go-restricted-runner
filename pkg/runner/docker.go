@@ -556,26 +556,38 @@ func (r *Docker) RunWithPipes(ctx context.Context, cmd string, args []string, en
 	if err != nil {
 		// Clean up the container
 		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
-		cleanupCmd.Run()
+		if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
+			r.logger.Debug("Warning: failed to cleanup container during error handling: %v", cleanupErr)
+		}
 		r.logger.Debug("Failed to create stdin pipe: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
 	stdoutPipe, err := execCmd.StdoutPipe()
 	if err != nil {
-		stdinPipe.Close()
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
 		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
-		cleanupCmd.Run()
+		if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
+			r.logger.Debug("Warning: failed to cleanup container during error handling: %v", cleanupErr)
+		}
 		r.logger.Debug("Failed to create stdout pipe: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	stderrPipe, err := execCmd.StderrPipe()
 	if err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+		}
 		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
-		cleanupCmd.Run()
+		if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
+			r.logger.Debug("Warning: failed to cleanup container during error handling: %v", cleanupErr)
+		}
 		r.logger.Debug("Failed to create stderr pipe: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
@@ -583,11 +595,19 @@ func (r *Docker) RunWithPipes(ctx context.Context, cmd string, args []string, en
 	// Start the exec command
 	r.logger.Debug("Starting docker exec command")
 	if err := execCmd.Start(); err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
-		stderrPipe.Close()
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+		}
+		if closeErr := stderrPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stderr pipe: %v", closeErr)
+		}
 		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
-		cleanupCmd.Run()
+		if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
+			r.logger.Debug("Warning: failed to cleanup container during error handling: %v", cleanupErr)
+		}
 		r.logger.Debug("Failed to start docker exec: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to start docker exec: %w", err)
 	}

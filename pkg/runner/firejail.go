@@ -296,15 +296,21 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 
 	// Write the profile to the file
 	if _, err := profileFile.Write(profileBuf.Bytes()); err != nil {
-		profileFile.Close()
-		os.Remove(profileFile.Name())
+		if closeErr := profileFile.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close profile file: %v", closeErr)
+		}
+		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
+		}
 		r.logger.Debug("Failed to write firejail profile: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to write firejail profile: %w", err)
 	}
 
 	// Close the file so firejail can read it
 	if err := profileFile.Close(); err != nil {
-		os.Remove(profileFile.Name())
+		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
+		}
 		r.logger.Debug("Failed to close profile file: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to close profile file: %w", err)
 	}
@@ -327,24 +333,36 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 	// Create pipes for stdin, stdout, and stderr
 	stdinPipe, err := execCmd.StdinPipe()
 	if err != nil {
-		os.Remove(profileFile.Name())
+		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
+		}
 		r.logger.Debug("Failed to create stdin pipe: %v", err)
 		return nil, nil, nil, nil, errors.New("failed to create stdin pipe: " + err.Error())
 	}
 
 	stdoutPipe, err := execCmd.StdoutPipe()
 	if err != nil {
-		stdinPipe.Close()
-		os.Remove(profileFile.Name())
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
+		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
+		}
 		r.logger.Debug("Failed to create stdout pipe: %v", err)
 		return nil, nil, nil, nil, errors.New("failed to create stdout pipe: " + err.Error())
 	}
 
 	stderrPipe, err := execCmd.StderrPipe()
 	if err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
-		os.Remove(profileFile.Name())
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+		}
+		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
+		}
 		r.logger.Debug("Failed to create stderr pipe: %v", err)
 		return nil, nil, nil, nil, errors.New("failed to create stderr pipe: " + err.Error())
 	}
@@ -352,10 +370,18 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 	// Start the command
 	r.logger.Debug("Starting firejail command with pipes")
 	if err := execCmd.Start(); err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
-		stderrPipe.Close()
-		os.Remove(profileFile.Name())
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+		}
+		if closeErr := stderrPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stderr pipe: %v", closeErr)
+		}
+		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
+		}
 		r.logger.Debug("Failed to start command: %v", err)
 		return nil, nil, nil, nil, errors.New("failed to start command: " + err.Error())
 	}

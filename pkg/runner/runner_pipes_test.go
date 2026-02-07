@@ -33,7 +33,9 @@ func TestExecRunner_RunWithPipes_BasicEcho(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to write to stdin: %v", err)
 	}
-	stdin.Close()
+	if err := stdin.Close(); err != nil {
+		t.Logf("Warning: failed to close stdin: %v", err)
+	}
 
 	// Read from stdout
 	output, err := io.ReadAll(stdout)
@@ -86,7 +88,9 @@ func TestExecRunner_RunWithPipes_MultipleWrites(t *testing.T) {
 			t.Fatalf("Failed to write to stdin: %v", err)
 		}
 	}
-	stdin.Close()
+	if err := stdin.Close(); err != nil {
+		t.Logf("Warning: failed to close stdin: %v", err)
+	}
 
 	// Read all output
 	output, err := io.ReadAll(stdout)
@@ -95,7 +99,9 @@ func TestExecRunner_RunWithPipes_MultipleWrites(t *testing.T) {
 	}
 
 	// Read stderr
-	io.ReadAll(stderr)
+	if _, err := io.ReadAll(stderr); err != nil {
+		t.Logf("Warning: failed to read stderr: %v", err)
+	}
 
 	// Wait for completion
 	err = wait()
@@ -136,14 +142,18 @@ func TestExecRunner_RunWithPipes_StderrCapture(t *testing.T) {
 		t.Fatalf("RunWithPipes failed: %v", err)
 	}
 
-	stdin.Close()
+	if err := stdin.Close(); err != nil {
+		t.Logf("Warning: failed to close stdin: %v", err)
+	}
 
 	// Read from both stdout and stderr
 	stdoutOutput, _ := io.ReadAll(stdout)
 	stderrOutput, _ := io.ReadAll(stderr)
 
 	// Wait for completion
-	wait()
+	if err := wait(); err != nil {
+		t.Logf("Note: wait returned error (may be expected): %v", err)
+	}
 
 	// Verify stderr contains the error message
 	if !strings.Contains(string(stderrOutput), "error message") {
@@ -184,9 +194,15 @@ func TestExecRunner_RunWithPipes_ContextCancellation(t *testing.T) {
 	cancel()
 
 	// Close pipes
-	stdin.Close()
-	io.ReadAll(stdout)
-	io.ReadAll(stderr)
+	if err := stdin.Close(); err != nil {
+		t.Logf("Warning: failed to close stdin: %v", err)
+	}
+	if _, err := io.ReadAll(stdout); err != nil {
+		t.Logf("Warning: failed to read stdout: %v", err)
+	}
+	if _, err := io.ReadAll(stderr); err != nil {
+		t.Logf("Warning: failed to read stderr: %v", err)
+	}
 
 	// Wait should return context.Canceled
 	err = wait()
@@ -240,10 +256,14 @@ func TestExecRunner_RunWithPipes_WithEnvironment(t *testing.T) {
 		t.Fatalf("RunWithPipes failed: %v", err)
 	}
 
-	stdin.Close()
+	if err := stdin.Close(); err != nil {
+		t.Logf("Warning: failed to close stdin: %v", err)
+	}
 
 	output, _ := io.ReadAll(stdout)
-	io.ReadAll(stderr)
+	if _, err := io.ReadAll(stderr); err != nil {
+		t.Logf("Warning: failed to read stderr: %v", err)
+	}
 
 	err = wait()
 	if err != nil {
@@ -283,11 +303,19 @@ func TestExecRunner_RunWithPipes_CommandExitsEarly(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Writing might fail, but that's okay
-	stdin.Write([]byte("test\n"))
-	stdin.Close()
+	if _, err := stdin.Write([]byte("test\n")); err != nil {
+		t.Logf("Note: write failed (expected): %v", err)
+	}
+	if err := stdin.Close(); err != nil {
+		t.Logf("Warning: failed to close stdin: %v", err)
+	}
 
-	io.ReadAll(stdout)
-	io.ReadAll(stderr)
+	if _, err := io.ReadAll(stdout); err != nil {
+		t.Logf("Warning: failed to read stdout: %v", err)
+	}
+	if _, err := io.ReadAll(stderr); err != nil {
+		t.Logf("Warning: failed to read stderr: %v", err)
+	}
 
 	// Wait should succeed (command exited with 0)
 	err = wait()
@@ -323,12 +351,18 @@ func TestExecRunner_RunWithPipes_ConcurrentReadWrite(t *testing.T) {
 
 	// Write some data
 	testData := "concurrent test\n"
-	stdin.Write([]byte(testData))
-	stdin.Close()
+	if _, err := stdin.Write([]byte(testData)); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+	if err := stdin.Close(); err != nil {
+		t.Logf("Warning: failed to close stdin: %v", err)
+	}
 
 	// Wait for read to complete
 	<-done
-	io.ReadAll(stderr)
+	if _, err := io.ReadAll(stderr); err != nil {
+		t.Logf("Warning: failed to read stderr: %v", err)
+	}
 
 	err = wait()
 	if err != nil {

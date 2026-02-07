@@ -251,15 +251,21 @@ func (r *Exec) RunWithPipes(ctx context.Context, cmd string, args []string, env 
 
 	stdoutPipe, err := execCmd.StdoutPipe()
 	if err != nil {
-		stdinPipe.Close()
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
 		r.logger.Debug("Failed to create stdout pipe: %v", err)
 		return nil, nil, nil, nil, errors.New("failed to create stdout pipe: " + err.Error())
 	}
 
 	stderrPipe, err := execCmd.StderrPipe()
 	if err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+		}
 		r.logger.Debug("Failed to create stderr pipe: %v", err)
 		return nil, nil, nil, nil, errors.New("failed to create stderr pipe: " + err.Error())
 	}
@@ -267,9 +273,15 @@ func (r *Exec) RunWithPipes(ctx context.Context, cmd string, args []string, env 
 	// Start the command
 	r.logger.Debug("Starting command with pipes")
 	if err := execCmd.Start(); err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
-		stderrPipe.Close()
+		if closeErr := stdinPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+		}
+		if closeErr := stdoutPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+		}
+		if closeErr := stderrPipe.Close(); closeErr != nil {
+			r.logger.Debug("Warning: failed to close stderr pipe: %v", closeErr)
+		}
 		r.logger.Debug("Failed to start command: %v", err)
 		return nil, nil, nil, nil, errors.New("failed to start command: " + err.Error())
 	}
