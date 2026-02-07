@@ -187,13 +187,14 @@ func (r *Landrun) Run(ctx context.Context, shell string, command string,
 
 	// Apply Landlock restrictions to this process
 	// Note: This affects the current process and all its children
-	config := landlock.V6
-	if r.options.BestEffort {
-		r.logger.Debug("Using best-effort mode for Landlock")
-		config = config.BestEffort()
-	}
+	// Only apply restrictions if we actually have rules to enforce
+	if len(rules) > 0 {
+		config := landlock.V6
+		if r.options.BestEffort {
+			r.logger.Debug("Using best-effort mode for Landlock")
+			config = config.BestEffort()
+		}
 
-	if len(rules) > 0 || (!r.options.UnrestrictedFilesystem && !r.options.AllowNetworking) {
 		r.logger.Debug("Applying Landlock restrictions with %d rules", len(rules))
 		if err := config.Restrict(rules...); err != nil {
 			return "", fmt.Errorf("failed to apply landlock restrictions: %w", err)
@@ -281,13 +282,14 @@ func (r *Landrun) RunWithPipes(ctx context.Context, cmd string, args []string, e
 	}
 
 	// Apply Landlock restrictions to this process
-	config := landlock.V6
-	if r.options.BestEffort {
-		r.logger.Debug("Using best-effort mode for Landlock")
-		config = config.BestEffort()
-	}
+	// Only apply restrictions if we actually have rules to enforce
+	if len(rules) > 0 {
+		config := landlock.V6
+		if r.options.BestEffort {
+			r.logger.Debug("Using best-effort mode for Landlock")
+			config = config.BestEffort()
+		}
 
-	if len(rules) > 0 || (!r.options.UnrestrictedFilesystem && !r.options.AllowNetworking) {
 		r.logger.Debug("Applying Landlock restrictions with %d rules", len(rules))
 		if err := config.Restrict(rules...); err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("failed to apply landlock restrictions: %w", err)
