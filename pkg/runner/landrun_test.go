@@ -20,9 +20,13 @@ func isLandlockAvailable() bool {
 		return false
 	}
 
-	// Try to create a minimal Landlock runner
+	// Try to create a minimal Landlock runner with unrestricted mode
+	// This ensures we don't apply Landlock restrictions during the check
 	logger, _ := common.NewLogger("", "", common.LogLevelDebug, false)
-	runner, err := NewLandrun(Options{}, logger)
+	runner, err := NewLandrun(Options{
+		"unrestricted_filesystem": true,
+		"allow_networking":        true,
+	}, logger)
 	if err != nil {
 		return false
 	}
@@ -36,7 +40,11 @@ func TestLandrun_CheckImplicitRequirements(t *testing.T) {
 	}
 
 	logger, _ := common.NewLogger("", "", common.LogLevelDebug, false)
-	runner, err := NewLandrun(Options{}, logger)
+	// Use unrestricted mode to avoid applying Landlock during the check
+	runner, err := NewLandrun(Options{
+		"unrestricted_filesystem": true,
+		"allow_networking":        true,
+	}, logger)
 	if err != nil {
 		t.Fatalf("Failed to create Landrun runner: %v", err)
 	}
