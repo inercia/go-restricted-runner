@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/inercia/go-restricted-runner/pkg/common"
 )
@@ -61,6 +62,48 @@ type Runner interface {
 	//   - The command output as a string
 	//   - An error if execution fails
 	Run(ctx context.Context, shell string, command string, env []string, params map[string]interface{}, tmpfile bool) (string, error)
+
+	// RunWithPipes executes a command with access to stdin/stdout/stderr pipes for interactive communication.
+	//
+	// This method is useful for long-running processes that require interactive input/output,
+	// such as REPLs, interactive shells, or streaming data processors.
+	//
+	// Lifecycle:
+	//   1. Call RunWithPipes to start the process and get pipes
+	//   2. Write data to stdin as needed
+	//   3. Read from stdout/stderr as needed (can be done concurrently)
+	//   4. Close stdin when done writing to signal EOF to the process
+	//   5. Read any remaining output from stdout/stderr
+	//   6. Call wait() to wait for process completion and get exit status
+	//
+	// Parameters:
+	//   - ctx: Context for cancellation and timeout. Cancelling the context will kill the process.
+	//   - cmd: The command/executable to run
+	//   - args: Command-line arguments for the command
+	//   - env: Environment variables in KEY=VALUE format
+	//   - params: Template parameters for variable substitution in paths/options
+	//
+	// Returns:
+	//   - stdin: WriteCloser for sending input to the process. Must be closed when done.
+	//   - stdout: ReadCloser for reading standard output from the process.
+	//   - stderr: ReadCloser for reading standard error from the process.
+	//   - wait: Function to call after reading output. Returns process exit error if any.
+	//           Must be called to clean up resources even if you don't care about the exit status.
+	//   - err: Error if the process failed to start.
+	//
+	// Important notes:
+	//   - All restrictions (path, network, etc.) configured for the runner still apply
+	//   - The wait() function MUST be called to properly clean up process resources
+	//   - Reading from stdout/stderr after the process exits is safe
+	//   - If context is cancelled, wait() will return context.Canceled or context.DeadlineExceeded
+	//   - Closing stdin does not automatically terminate the process; some processes may continue running
+	RunWithPipes(ctx context.Context, cmd string, args []string, env []string, params map[string]interface{}) (
+		stdin io.WriteCloser,
+		stdout io.ReadCloser,
+		stderr io.ReadCloser,
+		wait func() error,
+		err error,
+	)
 
 	// CheckImplicitRequirements verifies that the runner's prerequisites are met.
 	// This includes checking for required executables, OS compatibility, etc.
