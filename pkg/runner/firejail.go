@@ -162,12 +162,10 @@ func (r *Firejail) Run(ctx context.Context,
 			r.logger.Debug("Failed to create temporary command file: %v", err)
 			return "", fmt.Errorf("failed to create temporary command file: %w", err)
 		}
+		tmpScriptPath := tmpScript.Name()
+
 		// Ensure temporary file is deleted when this function exits
 		defer func() {
-			tmpScriptPath := tmpScript.Name()
-			if err := tmpScript.Close(); err != nil {
-				r.logger.Debug("Warning: failed to close script file: %v", err)
-			}
 			if err := os.Remove(tmpScriptPath); err != nil {
 				r.logger.Debug("Warning: failed to remove temporary script file: %v", err)
 			}
@@ -175,23 +173,32 @@ func (r *Firejail) Run(ctx context.Context,
 
 		// Write the command to the temporary file
 		if _, err := tmpScript.WriteString(fullCmd); err != nil {
+			tmpScript.Close()
 			r.logger.Debug("Failed to write command to temporary file: %v", err)
 			return "", fmt.Errorf("failed to write command to temporary file: %w", err)
 		}
 
 		// Flush data to ensure it's written to disk
 		if err := tmpScript.Sync(); err != nil {
+			tmpScript.Close()
 			r.logger.Debug("Failed to sync script file: %v", err)
 			return "", fmt.Errorf("failed to sync script file: %w", err)
 		}
 
+		// Close the file before making it executable and running it
+		// This is critical to avoid "Text file busy" errors with firejail
+		if err := tmpScript.Close(); err != nil {
+			r.logger.Debug("Failed to close script file: %v", err)
+			return "", fmt.Errorf("failed to close script file: %w", err)
+		}
+
 		// Make the temporary file executable
-		if err := os.Chmod(tmpScript.Name(), 0o700); err != nil {
+		if err := os.Chmod(tmpScriptPath, 0o700); err != nil {
 			r.logger.Debug("Failed to make temporary file executable: %v", err)
 			return "", fmt.Errorf("failed to make temporary file executable: %w", err)
 		}
 
-		execCmd = exec.CommandContext(ctx, "firejail", "--profile="+profileFile.Name(), tmpScript.Name())
+		execCmd = exec.CommandContext(ctx, "firejail", "--profile="+profileFile.Name(), tmpScriptPath)
 	}
 
 	// Check if context is done
