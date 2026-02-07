@@ -96,6 +96,118 @@ r, err := runner.New(runner.TypeDocker, runner.Options{
 }, logger)
 ```
 
+## Interactive Process Communication
+
+The library supports interactive process communication through the `RunWithPipes()` method, which provides access to stdin/stdout/stderr pipes for long-running or interactive processes.
+
+### When to Use Run() vs RunWithPipes()
+
+- **Use `Run()`** when you have a complete command to execute and want to get the output after it completes
+- **Use `RunWithPipes()`** when you need to:
+  - Send input to a running process interactively
+  - Stream data to/from a long-running process
+  - Work with REPLs or interactive shells
+  - Process output while the command is still running
+
+### Example: Interactive Process
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "io"
+    "log"
+
+    "github.com/inercia/go-restricted-runner/pkg/common"
+    "github.com/inercia/go-restricted-runner/pkg/runner"
+)
+
+func main() {
+    logger, _ := common.NewLogger("", "", common.LogLevelInfo, false)
+
+    // Create a runner with restrictions
+    r, err := runner.New(runner.TypeExec, runner.Options{}, logger)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    ctx := context.Background()
+
+    // Start an interactive process
+    stdin, stdout, stderr, wait, err := r.RunWithPipes(
+        ctx,
+        "cat",      // command
+        nil,        // args
+        nil,        // env
+        nil,        // params
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Send input to the process
+    fmt.Fprintln(stdin, "Hello from restricted runner!")
+    fmt.Fprintln(stdin, "This is interactive communication.")
+
+    // Close stdin to signal EOF
+    stdin.Close()
+
+    // Read output
+    output, _ := io.ReadAll(stdout)
+    errOutput, _ := io.ReadAll(stderr)
+
+    // Wait for process to complete
+    if err := wait(); err != nil {
+        log.Printf("Process error: %v", err)
+    }
+
+    fmt.Println("Output:", string(output))
+    if len(errOutput) > 0 {
+        fmt.Println("Errors:", string(errOutput))
+    }
+}
+```
+
+### Example: Python REPL
+
+```go
+// Start an interactive Python session
+stdin, stdout, stderr, wait, err := r.RunWithPipes(
+    ctx,
+    "python3",
+    []string{"-i"},  // Interactive mode
+    nil,
+    nil,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Send Python commands
+fmt.Fprintln(stdin, "x = 10")
+fmt.Fprintln(stdin, "y = 20")
+fmt.Fprintln(stdin, "print(x + y)")
+fmt.Fprintln(stdin, "exit()")
+stdin.Close()
+
+// Read output
+output, _ := io.ReadAll(stdout)
+io.ReadAll(stderr)
+
+wait()
+fmt.Println(string(output))
+```
+
+### Important Notes
+
+1. **Always close stdin** when done writing to signal EOF to the process
+2. **Always call wait()** to clean up resources, even if you don't care about the exit status
+3. **Read from stdout/stderr** before or after calling wait() - both work
+4. **Context cancellation** will kill the process
+5. **All restrictions apply** - path restrictions, network isolation, etc. still work with RunWithPipes()
+
 ## API Reference
 
 ### Runner Interface
@@ -103,8 +215,18 @@ r, err := runner.New(runner.TypeDocker, runner.Options{
 ```go
 type Runner interface {
     // Run executes a command and returns the output.
-    Run(ctx context.Context, shell string, command string, env []string, 
+    Run(ctx context.Context, shell string, command string, env []string,
         params map[string]interface{}, tmpfile bool) (string, error)
+
+    // RunWithPipes executes a command with access to stdin/stdout/stderr pipes.
+    RunWithPipes(ctx context.Context, cmd string, args []string, env []string,
+        params map[string]interface{}) (
+        stdin io.WriteCloser,
+        stdout io.ReadCloser,
+        stderr io.ReadCloser,
+        wait func() error,
+        err error,
+    )
 
     // CheckImplicitRequirements verifies that the runner's prerequisites are met.
     CheckImplicitRequirements() error
