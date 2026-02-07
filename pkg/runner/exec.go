@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -201,6 +202,93 @@ func (r *Exec) Run(ctx context.Context, shell string,
 
 	// Return the output
 	return output, nil
+}
+
+// RunWithPipes executes a command with access to stdin/stdout/stderr pipes.
+// It implements the Runner interface for interactive process communication.
+//
+// The command is executed directly without a shell, so shell features like
+// pipes, redirects, and variable expansion are not available. Use the cmd
+// parameter for the executable and args for its arguments.
+//
+// All environment variables from the current process are inherited, plus
+// any additional ones specified in the env parameter.
+func (r *Exec) RunWithPipes(ctx context.Context, cmd string, args []string, env []string, params map[string]interface{}) (
+	stdin io.WriteCloser,
+	stdout io.ReadCloser,
+	stderr io.ReadCloser,
+	wait func() error,
+	err error,
+) {
+	// Check if context is already done
+	select {
+	case <-ctx.Done():
+		return nil, nil, nil, nil, ctx.Err()
+	default:
+		// Continue execution
+	}
+
+	r.logger.Debug("RunWithPipes: executing command: %s with args: %v", cmd, args)
+
+	// Create the command
+	execCmd := exec.CommandContext(ctx, cmd, args...)
+
+	// Set environment variables if provided
+	if len(env) > 0 {
+		r.logger.Debug("Adding %d environment variables to command", len(env))
+		for _, e := range env {
+			r.logger.Debug("... adding environment variable: %s", e)
+		}
+		execCmd.Env = append(os.Environ(), env...)
+	}
+
+	// Create pipes for stdin, stdout, and stderr
+	stdinPipe, err := execCmd.StdinPipe()
+	if err != nil {
+		r.logger.Debug("Failed to create stdin pipe: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to create stdin pipe: " + err.Error())
+	}
+
+	stdoutPipe, err := execCmd.StdoutPipe()
+	if err != nil {
+		stdinPipe.Close()
+		r.logger.Debug("Failed to create stdout pipe: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to create stdout pipe: " + err.Error())
+	}
+
+	stderrPipe, err := execCmd.StderrPipe()
+	if err != nil {
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		r.logger.Debug("Failed to create stderr pipe: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to create stderr pipe: " + err.Error())
+	}
+
+	// Start the command
+	r.logger.Debug("Starting command with pipes")
+	if err := execCmd.Start(); err != nil {
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		stderrPipe.Close()
+		r.logger.Debug("Failed to start command: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to start command: " + err.Error())
+	}
+
+	r.logger.Debug("Command started successfully with PID: %d", execCmd.Process.Pid)
+
+	// Create wait function that waits for the command to complete
+	waitFunc := func() error {
+		r.logger.Debug("Waiting for command to complete")
+		err := execCmd.Wait()
+		if err != nil {
+			r.logger.Debug("Command completed with error: %v", err)
+			return err
+		}
+		r.logger.Debug("Command completed successfully")
+		return nil
+	}
+
+	return stdinPipe, stdoutPipe, stderrPipe, waitFunc, nil
 }
 
 // CheckImplicitRequirements checks if the runner meets its implicit requirements.
