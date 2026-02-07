@@ -136,6 +136,7 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+          args: ./pkg/...
 
   format:
     name: Format Check

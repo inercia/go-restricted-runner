@@ -316,22 +316,22 @@ func (r *Landrun) RunWithPipes(ctx context.Context, cmd string, args []string, e
 
 	stdoutPipe, err := execCmd.StdoutPipe()
 	if err != nil {
-		stdinPipe.Close()
+		_ = stdinPipe.Close()
 		return nil, nil, nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	stderrPipe, err := execCmd.StderrPipe()
 	if err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
+		_ = stdinPipe.Close()
+		_ = stdoutPipe.Close()
 		return nil, nil, nil, nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
 	// Start the command
 	if err := execCmd.Start(); err != nil {
-		stdinPipe.Close()
-		stdoutPipe.Close()
-		stderrPipe.Close()
+		_ = stdinPipe.Close()
+		_ = stdoutPipe.Close()
+		_ = stderrPipe.Close()
 		return nil, nil, nil, nil, fmt.Errorf("failed to start command: %w", err)
 	}
 

@@ -30,14 +30,6 @@ func isLandlockAvailable() bool {
 	return runner.CheckImplicitRequirements() == nil
 }
 
-// Helper function to get kernel version for network tests
-func supportsNetworkRestrictions() bool {
-	// Network restrictions require kernel 6.7+
-	// For now, we'll just try to use them and see if they work
-	// The best-effort mode will handle older kernels gracefully
-	return true
-}
-
 func TestLandrun_CheckImplicitRequirements(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Skipping landrun tests on non-Linux platform")
@@ -96,7 +88,9 @@ func TestLandrun_Run_WithFilesystemRestrictions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create a test file
 	testFile := filepath.Join(tmpDir, "test.txt")
@@ -139,7 +133,9 @@ func TestLandrun_Run_WithWriteRestrictions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create runner with write access to the temp directory
 	runner, err := NewLandrun(Options{
@@ -178,7 +174,9 @@ func TestLandrun_Run_WithTemplateVariables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create runner with template variable in path
 	runner, err := NewLandrun(Options{
@@ -293,7 +291,9 @@ func TestLandrun_RunWithPipes_BasicEcho(t *testing.T) {
 	if _, err := fmt.Fprint(stdin, testInput); err != nil {
 		t.Fatalf("Failed to write to stdin: %v", err)
 	}
-	stdin.Close()
+	if err := stdin.Close(); err != nil {
+		t.Fatalf("Failed to close stdin: %v", err)
+	}
 
 	// Read from stdout
 	output, err := io.ReadAll(stdout)
@@ -302,7 +302,7 @@ func TestLandrun_RunWithPipes_BasicEcho(t *testing.T) {
 	}
 
 	// Read from stderr (should be empty)
-	io.ReadAll(stderr)
+	_, _ = io.ReadAll(stderr)
 
 	// Wait for command to complete
 	if err := wait(); err != nil {
@@ -343,14 +343,16 @@ func TestLandrun_RunWithPipes_MultipleWrites(t *testing.T) {
 			t.Fatalf("Failed to write to stdin: %v", err)
 		}
 	}
-	stdin.Close()
+	if err := stdin.Close(); err != nil {
+		t.Fatalf("Failed to close stdin: %v", err)
+	}
 
 	// Read all output
 	output, err := io.ReadAll(stdout)
 	if err != nil {
 		t.Fatalf("Failed to read from stdout: %v", err)
 	}
-	io.ReadAll(stderr)
+	_, _ = io.ReadAll(stderr)
 
 	if err := wait(); err != nil {
 		t.Fatalf("Command failed: %v", err)
@@ -390,9 +392,9 @@ func TestLandrun_RunWithPipes_ContextCancellation(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Clean up pipes
-	stdin.Close()
-	io.ReadAll(stdout)
-	io.ReadAll(stderr)
+	_ = stdin.Close()
+	_, _ = io.ReadAll(stdout)
+	_, _ = io.ReadAll(stderr)
 
 	// Wait should return an error due to context cancellation
 	err = wait()
@@ -583,7 +585,9 @@ func TestLandrun_Integration_FilesystemDenial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create a test file
 	testFile := filepath.Join(tmpDir, "secret.txt")
@@ -621,7 +625,9 @@ func TestLandrun_Integration_WriteRestriction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create runner with read-only access to tmpDir
 	runner, err := NewLandrun(Options{
@@ -660,7 +666,9 @@ func TestLandrun_Integration_ExecuteRestriction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create an executable script
 	scriptFile := filepath.Join(tmpDir, "test.sh")
@@ -700,13 +708,17 @@ func TestLandrun_Integration_MultipleRestrictions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create read dir: %v", err)
 	}
-	defer os.RemoveAll(readDir)
+	defer func() {
+		_ = os.RemoveAll(readDir)
+	}()
 
 	writeDir, err := os.MkdirTemp("", "landrun-write-")
 	if err != nil {
 		t.Fatalf("Failed to create write dir: %v", err)
 	}
-	defer os.RemoveAll(writeDir)
+	defer func() {
+		_ = os.RemoveAll(writeDir)
+	}()
 
 	// Create test files
 	readFile := filepath.Join(readDir, "read.txt")
@@ -768,7 +780,9 @@ func TestLandrun_Integration_RunWithPipes_Restrictions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	// Create a test file
 	testFile := filepath.Join(tmpDir, "test.txt")
@@ -794,14 +808,14 @@ func TestLandrun_Integration_RunWithPipes_Restrictions(t *testing.T) {
 		t.Fatalf("RunWithPipes failed: %v", err)
 	}
 
-	stdin.Close()
+	_ = stdin.Close()
 
 	// Read output
 	output, err := io.ReadAll(stdout)
 	if err != nil {
 		t.Fatalf("Failed to read stdout: %v", err)
 	}
-	io.ReadAll(stderr)
+	_, _ = io.ReadAll(stderr)
 
 	if err := wait(); err != nil {
 		t.Fatalf("Command failed: %v", err)
