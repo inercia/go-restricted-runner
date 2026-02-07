@@ -11,6 +11,7 @@ A Go library for executing commands in isolated/restricted environments.
 - **exec** - Direct command execution (no isolation)
 - **sandbox-exec** - macOS sandbox-exec based isolation
 - **firejail** - Linux firejail based isolation
+- **landrun** - Linux Landlock kernel-native isolation (kernel 5.13+)
 - **docker** - Docker container based isolation
 
 ## Installation
@@ -82,6 +83,19 @@ Uses Linux `firejail` for process isolation.
 ```go
 r, err := runner.New(runner.TypeFirejail, runner.Options{
     "allow_networking": false,
+}, logger)
+```
+
+### Landrun Runner (Linux)
+
+Uses Linux Landlock LSM for kernel-native sandboxing (requires kernel 5.13+).
+
+```go
+r, err := runner.New(runner.TypeLandrun, runner.Options{
+    "allow_read_folders": []string{"/usr", "/lib", "/etc"},
+    "allow_read_exec_folders": []string{"/usr/bin", "/bin"},
+    "allow_write_folders": []string{"/tmp"},
+    "best_effort": true,
 }, logger)
 ```
 

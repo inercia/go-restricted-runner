@@ -15,6 +15,7 @@ This documentation provides detailed information about the different runner type
 | [Exec Runner](runner-exec.md) | All | None | Direct command execution without isolation |
 | [Sandbox-Exec Runner](runner-sandbox-exec.md) | macOS | Medium | macOS sandbox-exec based isolation |
 | [Firejail Runner](runner-firejail.md) | Linux | Medium | Linux firejail based isolation |
+| [Landrun Runner](runner-landrun.md) | Linux | Medium-High | Linux Landlock kernel-native isolation (kernel 5.13+) |
 | [Docker Runner](runner-docker.md) | All* | High | Docker container based isolation |
 
 *Requires Docker to be installed and running.
@@ -48,23 +49,26 @@ output, err := r.Run(ctx, "sh", "echo 'Hello!'", nil, nil, false)
 
 - **Exec**: Development, testing, or when you trust the commands being executed
 - **Sandbox-Exec**: macOS environments requiring process isolation
-- **Firejail**: Linux environments requiring process isolation
+- **Firejail**: Linux environments requiring process isolation with external tool
+- **Landrun**: Linux environments requiring kernel-native isolation (no external dependencies)
 - **Docker**: Maximum isolation or cross-platform consistent environments
 
 ### Comparison Matrix
 
-| Feature | Exec | Sandbox-Exec | Firejail | Docker |
-|---------|------|--------------|----------|--------|
-| Network control | ❌ | ✅ | ✅ | ✅ |
-| Filesystem isolation | ❌ | ✅ | ✅ | ✅ |
-| Custom profiles | ❌ | ✅ | ✅ | ✅ |
-| Memory limits | ❌ | ❌ | ❌ | ✅ |
-| Cross-platform | ✅ | ❌ | ❌ | ✅* |
-| No dependencies | ✅ | ✅** | ❌ | ❌ |
-| Performance overhead | None | Low | Low | Medium |
+| Feature | Exec | Sandbox-Exec | Firejail | Landrun | Docker |
+|---------|------|--------------|----------|---------|--------|
+| Network control | ❌ | ✅ | ✅ | ✅*** | ✅ |
+| Filesystem isolation | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Custom profiles | ❌ | ✅ | ✅ | ❌ | ✅ |
+| Memory limits | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Cross-platform | ✅ | ❌ | ❌ | ❌ | ✅* |
+| No dependencies | ✅ | ✅** | ❌ | ✅ | ❌ |
+| Performance overhead | None | Low | Low | Minimal | Medium |
+| Kernel requirement | Any | Any | Any | 5.13+ | Any |
 
 \* Requires Docker installation
 \** Built into macOS
+\*** Network control requires kernel 6.7+
 
 ## Common Interface
 
@@ -104,6 +108,7 @@ Runner types:
 - `runner.TypeExec` - Direct execution
 - `runner.TypeSandboxExec` - macOS sandbox-exec
 - `runner.TypeFirejail` - Linux firejail
+- `runner.TypeLandrun` - Linux Landlock (kernel-native)
 - `runner.TypeDocker` - Docker container
 
 ## Error Handling

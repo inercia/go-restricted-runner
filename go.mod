@@ -2,7 +2,10 @@ module github.com/inercia/go-restricted-runner
 
 go 1.24.0
 
-require github.com/Masterminds/sprig/v3 v3.3.0
+require (
+	github.com/Masterminds/sprig/v3 v3.3.0
+	github.com/landlock-lsm/go-landlock v0.6.0
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -15,4 +18,6 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	kernel.org/pub/linux/libs/security/libcap/psx v1.2.77 // indirect
 )

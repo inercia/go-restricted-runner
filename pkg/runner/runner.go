@@ -32,6 +32,10 @@ const (
 	// Implicit requirements: OS=linux, executables=[firejail]
 	TypeFirejail Type = "firejail"
 
+	// TypeLandrun is the Linux-specific Landlock-based runner
+	// Implicit requirements: OS=linux, kernel>=5.13 with Landlock enabled
+	TypeLandrun Type = "landrun"
+
 	// TypeDocker is the Docker-based runner
 	// Implicit requirements: executables=[docker]
 	TypeDocker Type = "docker"
@@ -136,6 +140,8 @@ func New(runnerType Type, options Options, logger *common.Logger) (Runner, error
 		runner, err = NewSandboxExec(options, logger)
 	case TypeFirejail:
 		runner, err = NewFirejail(options, logger)
+	case TypeLandrun:
+		runner, err = NewLandrun(options, logger)
 	case TypeDocker:
 		runner, err = NewDocker(options, logger)
 	default:
