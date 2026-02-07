@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,6 +254,145 @@ func (r *SandboxExec) Run(ctx context.Context, shell string, command string, env
 
 	// Return the stdout output
 	return outputStr, nil
+}
+
+// RunWithPipes executes a command with access to stdin/stdout/stderr pipes within the macOS sandbox.
+// It implements the Runner interface for interactive process communication with sandbox restrictions.
+//
+// The command is executed within the macOS sandbox with all configured restrictions applied
+// (network isolation, filesystem access controls, etc.).
+func (r *SandboxExec) RunWithPipes(ctx context.Context, cmd string, args []string, env []string, params map[string]interface{}) (
+	stdin io.WriteCloser,
+	stdout io.ReadCloser,
+	stderr io.ReadCloser,
+	wait func() error,
+	err error,
+) {
+	// Check if context is already done
+	select {
+	case <-ctx.Done():
+		return nil, nil, nil, nil, ctx.Err()
+	default:
+		// Continue execution
+	}
+
+	r.logger.Debug("RunWithPipes: executing command in sandbox: %s with args: %v", cmd, args)
+
+	// Process template variables in allow read and write folders and files
+	if len(r.options.AllowReadFolders) > 0 {
+		r.options.AllowReadFolders = common.ProcessTemplateListFlexible(r.options.AllowReadFolders, params)
+	}
+	if len(r.options.AllowWriteFolders) > 0 {
+		r.options.AllowWriteFolders = common.ProcessTemplateListFlexible(r.options.AllowWriteFolders, params)
+	}
+	if len(r.options.AllowReadFiles) > 0 {
+		r.options.AllowReadFiles = common.ProcessTemplateListFlexible(r.options.AllowReadFiles, params)
+	}
+	if len(r.options.AllowWriteFiles) > 0 {
+		r.options.AllowWriteFiles = common.ProcessTemplateListFlexible(r.options.AllowWriteFiles, params)
+	}
+
+	// Generate the sandbox profile
+	var profileBuf bytes.Buffer
+	if err := r.profileTpl.Execute(&profileBuf, r.options); err != nil {
+		r.logger.Debug("Failed to render sandbox profile template: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to render sandbox profile: %w", err)
+	}
+
+	// Create a temporary file for the sandbox profile
+	profileFile, err := os.CreateTemp("", "sandbox-profile-*.sb")
+	if err != nil {
+		r.logger.Debug("Failed to create temporary profile file: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create temporary profile file: %w", err)
+	}
+
+	// Write the profile to the file
+	if _, err := profileFile.Write(profileBuf.Bytes()); err != nil {
+		profileFile.Close()
+		os.Remove(profileFile.Name())
+		r.logger.Debug("Failed to write sandbox profile: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to write sandbox profile: %w", err)
+	}
+
+	// Close the file so sandbox-exec can read it
+	if err := profileFile.Close(); err != nil {
+		os.Remove(profileFile.Name())
+		r.logger.Debug("Failed to close profile file: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to close profile file: %w", err)
+	}
+
+	r.logger.Debug("Created sandbox profile at: %s", profileFile.Name())
+
+	// Build the command with sandbox-exec
+	// sandbox-exec -f <profile> <cmd> <args...>
+	sandboxArgs := []string{"-f", profileFile.Name(), cmd}
+	sandboxArgs = append(sandboxArgs, args...)
+
+	execCmd := exec.CommandContext(ctx, "sandbox-exec", sandboxArgs...)
+
+	// Set environment variables if provided
+	if len(env) > 0 {
+		r.logger.Debug("Adding %d environment variables to command", len(env))
+		execCmd.Env = append(os.Environ(), env...)
+	}
+
+	// Create pipes for stdin, stdout, and stderr
+	stdinPipe, err := execCmd.StdinPipe()
+	if err != nil {
+		os.Remove(profileFile.Name())
+		r.logger.Debug("Failed to create stdin pipe: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to create stdin pipe: " + err.Error())
+	}
+
+	stdoutPipe, err := execCmd.StdoutPipe()
+	if err != nil {
+		stdinPipe.Close()
+		os.Remove(profileFile.Name())
+		r.logger.Debug("Failed to create stdout pipe: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to create stdout pipe: " + err.Error())
+	}
+
+	stderrPipe, err := execCmd.StderrPipe()
+	if err != nil {
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		os.Remove(profileFile.Name())
+		r.logger.Debug("Failed to create stderr pipe: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to create stderr pipe: " + err.Error())
+	}
+
+	// Start the command
+	r.logger.Debug("Starting sandboxed command with pipes")
+	if err := execCmd.Start(); err != nil {
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		stderrPipe.Close()
+		os.Remove(profileFile.Name())
+		r.logger.Debug("Failed to start command: %v", err)
+		return nil, nil, nil, nil, errors.New("failed to start command: " + err.Error())
+	}
+
+	r.logger.Debug("Sandboxed command started successfully with PID: %d", execCmd.Process.Pid)
+
+	// Create wait function that waits for the command to complete and cleans up
+	waitFunc := func() error {
+		r.logger.Debug("Waiting for sandboxed command to complete")
+		err := execCmd.Wait()
+
+		// Clean up the profile file
+		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove sandbox profile file %s: %v", profileFile.Name(), removeErr)
+		}
+
+		if err != nil {
+			r.logger.Debug("Sandboxed command completed with error: %v", err)
+			return err
+		}
+		r.logger.Debug("Sandboxed command completed successfully")
+		return nil
+	}
+
+	return stdinPipe, stdoutPipe, stderrPipe, waitFunc, nil
 }
 
 // CheckImplicitRequirements checks if the runner meets its implicit requirements.
