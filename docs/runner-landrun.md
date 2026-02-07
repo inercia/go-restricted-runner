@@ -12,6 +12,27 @@ Landlock is a Linux kernel security feature (available since kernel 5.13) that a
 - **Fine-grained control** - Precise filesystem and network restrictions
 - **Best-effort mode** - Graceful degradation on older kernels
 
+## Important Limitations
+
+**⚠️ Landlock restrictions are irreversible and process-wide**
+
+Landlock restrictions are applied to the current process and cannot be removed or relaxed once applied. This has important implications:
+
+1. **Multiple commands in the same process**: If you call `Run()` or `RunWithPipes()` multiple times with different restrictions in the same process, the restrictions will accumulate. Each call adds more restrictions that cannot be undone.
+
+2. **Process-wide effect**: Once Landlock is applied, it affects the current process and ALL its children, including any subsequent operations in your program.
+
+3. **Best practices**:
+   - Use one Landrun instance per process for best results
+   - For multiple commands with different restrictions, consider:
+     - Running each command in a separate process
+     - Using the Docker runner which provides process-level isolation
+     - Using Firejail which spawns separate sandboxed processes
+
+4. **Testing**: When writing tests, be aware that Landlock restrictions applied in one test may affect subsequent tests in the same test process. Use `t.Parallel()` or run tests in separate processes if needed.
+
+This is a fundamental limitation of how Landlock works in the Linux kernel, not a limitation of this library.
+
 ## Requirements
 
 - **Operating System**: Linux only

@@ -16,7 +16,22 @@ import (
 	"github.com/landlock-lsm/go-landlock/landlock"
 )
 
-// Landrun implements the Runner interface using Linux Landlock LSM
+// Landrun implements the Runner interface using Linux Landlock LSM.
+//
+// IMPORTANT: Landlock restrictions are applied to the current process and are irreversible.
+// Once applied, they affect the current process and all its children. This means:
+//
+//  1. Multiple Run() or RunWithPipes() calls with different restrictions in the same
+//     process will accumulate restrictions (Landlock uses a "deny by default" model).
+//  2. The restrictions cannot be removed or relaxed once applied.
+//  3. For best results, use one Landrun instance per process, or use the Docker runner
+//     for cases requiring multiple different restriction sets.
+//
+// This is a fundamental limitation of how Landlock works in the Linux kernel.
+// For complete isolation between commands with different restrictions, consider:
+//   - Running each command in a separate process
+//   - Using the Docker runner which provides process-level isolation
+//   - Using Firejail which spawns separate sandboxed processes
 type Landrun struct {
 	logger  *common.Logger
 	options LandrunOptions
@@ -74,15 +89,16 @@ func NewLandrun(options Options, logger *common.Logger) (*Landrun, error) {
 }
 
 // CheckImplicitRequirements verifies that Landlock is available on the system.
+// This check is side-effect-free and does not apply any restrictions to the current process.
 func (r *Landrun) CheckImplicitRequirements() error {
 	if runtime.GOOS != "linux" {
 		return fmt.Errorf("landrun runner requires Linux")
 	}
 
-	// Try to check if Landlock is available by attempting a minimal restriction
-	// We use V1 as it's the minimum version (kernel 5.13+)
-	err := landlock.V1.BestEffort().RestrictPaths()
-	if err != nil {
+	// Side-effect-free check: verify that the Landlock securityfs interface exists.
+	// This avoids applying any Landlock rules to the current process while still
+	// providing an early indication of availability.
+	if _, err := os.Stat("/sys/kernel/security/landlock"); err != nil {
 		return fmt.Errorf("landlock not available on this kernel: %w", err)
 	}
 
@@ -161,8 +177,48 @@ func (r *Landrun) buildLandlockRules(params map[string]interface{}) ([]landlock.
 	return rules, nil
 }
 
+// selectLandlockABI selects the appropriate Landlock ABI version based on requested features.
+// It returns the highest supported ABI that provides the needed features.
+//
+// ABI versions and their features:
+// - V1 (kernel 5.13+): Basic filesystem restrictions
+// - V2 (kernel 5.19+): Additional filesystem access rights
+// - V3 (kernel 6.2+): More filesystem access rights
+// - V4 (kernel 6.7+): Network restrictions (TCP bind/connect)
+// - V5 (kernel 6.7+): Additional network features
+// - V6 (kernel 6.10+): Latest features
+func (r *Landrun) selectLandlockABI() landlock.Config {
+	// Check if network restrictions are requested
+	needsNetwork := !r.options.AllowNetworking &&
+		(len(r.options.AllowBindTCP) > 0 || len(r.options.AllowConnectTCP) > 0)
+
+	// Select ABI based on features needed
+	var config landlock.Config
+	if needsNetwork {
+		// Network restrictions require V4+ (kernel 6.7+)
+		r.logger.Debug("Network restrictions requested, using Landlock V4+")
+		config = landlock.V4
+	} else {
+		// Filesystem-only restrictions work with V1+ (kernel 5.13+)
+		r.logger.Debug("Filesystem-only restrictions, using Landlock V1+")
+		config = landlock.V1
+	}
+
+	// Apply best-effort mode if requested
+	if r.options.BestEffort {
+		r.logger.Debug("Enabling best-effort mode for graceful degradation")
+		config = config.BestEffort()
+	}
+
+	return config
+}
+
 // Run executes a command with Landlock restrictions and returns the output.
 // It implements the Runner interface.
+//
+// IMPORTANT: This method applies Landlock restrictions to the CURRENT PROCESS before
+// executing the command. These restrictions are IRREVERSIBLE and will affect all
+// subsequent operations in this process. See the Landrun type documentation for details.
 //
 // Note: tmpfile parameter is ignored for landrun as restrictions are applied
 // at the process level before command execution.
@@ -189,11 +245,8 @@ func (r *Landrun) Run(ctx context.Context, shell string, command string,
 	// Note: This affects the current process and all its children
 	// Only apply restrictions if we actually have rules to enforce
 	if len(rules) > 0 {
-		config := landlock.V6
-		if r.options.BestEffort {
-			r.logger.Debug("Using best-effort mode for Landlock")
-			config = config.BestEffort()
-		}
+		// Select appropriate ABI based on requested features
+		config := r.selectLandlockABI()
 
 		r.logger.Debug("Applying Landlock restrictions with %d rules", len(rules))
 		if err := config.Restrict(rules...); err != nil {
@@ -256,6 +309,10 @@ func (r *Landrun) Run(ctx context.Context, shell string, command string,
 // RunWithPipes executes a command with access to stdin/stdout/stderr pipes with Landlock restrictions.
 // It implements the Runner interface for interactive process communication.
 //
+// IMPORTANT: This method applies Landlock restrictions to the CURRENT PROCESS before
+// executing the command. These restrictions are IRREVERSIBLE and will affect all
+// subsequent operations in this process. See the Landrun type documentation for details.
+//
 // The Landlock restrictions are applied before starting the command, and the command
 // and all its children will inherit these restrictions.
 func (r *Landrun) RunWithPipes(ctx context.Context, cmd string, args []string, env []string, params map[string]interface{}) (
@@ -284,11 +341,8 @@ func (r *Landrun) RunWithPipes(ctx context.Context, cmd string, args []string, e
 	// Apply Landlock restrictions to this process
 	// Only apply restrictions if we actually have rules to enforce
 	if len(rules) > 0 {
-		config := landlock.V6
-		if r.options.BestEffort {
-			r.logger.Debug("Using best-effort mode for Landlock")
-			config = config.BestEffort()
-		}
+		// Select appropriate ABI based on requested features
+		config := r.selectLandlockABI()
 
 		r.logger.Debug("Applying Landlock restrictions with %d rules", len(rules))
 		if err := config.Restrict(rules...); err != nil {
