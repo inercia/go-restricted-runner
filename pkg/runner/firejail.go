@@ -127,11 +127,8 @@ func (r *Firejail) Run(ctx context.Context,
 		r.logger.Debug("Failed to create temporary profile file: %v", err)
 		return "", fmt.Errorf("failed to create temporary profile file: %w", err)
 	}
+	profileFilePath := profileFile.Name()
 	defer func() {
-		profileFilePath := profileFile.Name()
-		if err := profileFile.Close(); err != nil {
-			r.logger.Debug("Warning: failed to close profile file: %v", err)
-		}
 		if err := os.Remove(profileFilePath); err != nil {
 			r.logger.Debug("Warning: failed to remove temporary profile file: %v", err)
 		}
@@ -149,12 +146,19 @@ func (r *Firejail) Run(ctx context.Context,
 		return "", fmt.Errorf("failed to sync profile file: %w", err)
 	}
 
+	// Close the profile file before executing firejail
+	// This is critical to avoid "Text file busy" errors
+	if err := profileFile.Close(); err != nil {
+		r.logger.Debug("Failed to close profile file: %v", err)
+		return "", fmt.Errorf("failed to close profile file: %w", err)
+	}
+
 	var execCmd *exec.Cmd
 
 	// Check if we can optimize by running a single executable directly
 	if isSingleExecutableCommand(fullCmd) {
 		r.logger.Debug("Optimization: running single executable command directly: %s", fullCmd)
-		execCmd = exec.CommandContext(ctx, "firejail", "--profile="+profileFile.Name(), fullCmd)
+		execCmd = exec.CommandContext(ctx, "firejail", "--profile="+profileFilePath, fullCmd)
 	} else {
 		// Create a temporary file for the command
 		tmpScript, err := os.CreateTemp("", "firejail-command-*.sh")
@@ -173,14 +177,14 @@ func (r *Firejail) Run(ctx context.Context,
 
 		// Write the command to the temporary file
 		if _, err := tmpScript.WriteString(fullCmd); err != nil {
-			tmpScript.Close()
+			_ = tmpScript.Close()
 			r.logger.Debug("Failed to write command to temporary file: %v", err)
 			return "", fmt.Errorf("failed to write command to temporary file: %w", err)
 		}
 
 		// Flush data to ensure it's written to disk
 		if err := tmpScript.Sync(); err != nil {
-			tmpScript.Close()
+			_ = tmpScript.Close()
 			r.logger.Debug("Failed to sync script file: %v", err)
 			return "", fmt.Errorf("failed to sync script file: %w", err)
 		}
@@ -198,7 +202,7 @@ func (r *Firejail) Run(ctx context.Context,
 			return "", fmt.Errorf("failed to make temporary file executable: %w", err)
 		}
 
-		execCmd = exec.CommandContext(ctx, "firejail", "--profile="+profileFile.Name(), tmpScriptPath)
+		execCmd = exec.CommandContext(ctx, "firejail", "--profile="+profileFilePath, tmpScriptPath)
 	}
 
 	// Check if context is done
@@ -300,13 +304,14 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 		r.logger.Debug("Failed to create temporary profile file: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to create temporary profile file: %w", err)
 	}
+	profileFilePath := profileFile.Name()
 
 	// Write the profile to the file
 	if _, err := profileFile.Write(profileBuf.Bytes()); err != nil {
 		if closeErr := profileFile.Close(); closeErr != nil {
 			r.logger.Debug("Warning: failed to close profile file: %v", closeErr)
 		}
-		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+		if removeErr := os.Remove(profileFilePath); removeErr != nil {
 			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
 		}
 		r.logger.Debug("Failed to write firejail profile: %v", err)
@@ -315,18 +320,18 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 
 	// Close the file so firejail can read it
 	if err := profileFile.Close(); err != nil {
-		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+		if removeErr := os.Remove(profileFilePath); removeErr != nil {
 			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
 		}
 		r.logger.Debug("Failed to close profile file: %v", err)
 		return nil, nil, nil, nil, fmt.Errorf("failed to close profile file: %w", err)
 	}
 
-	r.logger.Debug("Created firejail profile at: %s", profileFile.Name())
+	r.logger.Debug("Created firejail profile at: %s", profileFilePath)
 
 	// Build the command with firejail
 	// firejail --profile=<profile> <cmd> <args...>
-	firejailArgs := []string{"--profile=" + profileFile.Name(), cmd}
+	firejailArgs := []string{"--profile=" + profileFilePath, cmd}
 	firejailArgs = append(firejailArgs, args...)
 
 	execCmd := exec.CommandContext(ctx, "firejail", firejailArgs...)
@@ -340,7 +345,7 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 	// Create pipes for stdin, stdout, and stderr
 	stdinPipe, err := execCmd.StdinPipe()
 	if err != nil {
-		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+		if removeErr := os.Remove(profileFilePath); removeErr != nil {
 			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
 		}
 		r.logger.Debug("Failed to create stdin pipe: %v", err)
@@ -352,7 +357,7 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 		if closeErr := stdinPipe.Close(); closeErr != nil {
 			r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
 		}
-		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+		if removeErr := os.Remove(profileFilePath); removeErr != nil {
 			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
 		}
 		r.logger.Debug("Failed to create stdout pipe: %v", err)
@@ -367,7 +372,7 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 		if closeErr := stdoutPipe.Close(); closeErr != nil {
 			r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
 		}
-		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+		if removeErr := os.Remove(profileFilePath); removeErr != nil {
 			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
 		}
 		r.logger.Debug("Failed to create stderr pipe: %v", err)
@@ -386,7 +391,7 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 		if closeErr := stderrPipe.Close(); closeErr != nil {
 			r.logger.Debug("Warning: failed to close stderr pipe: %v", closeErr)
 		}
-		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
+		if removeErr := os.Remove(profileFilePath); removeErr != nil {
 			r.logger.Debug("Warning: failed to remove profile file: %v", removeErr)
 		}
 		r.logger.Debug("Failed to start command: %v", err)
@@ -401,8 +406,8 @@ func (r *Firejail) RunWithPipes(ctx context.Context, cmd string, args []string, 
 		err := execCmd.Wait()
 
 		// Clean up the profile file
-		if removeErr := os.Remove(profileFile.Name()); removeErr != nil {
-			r.logger.Debug("Warning: failed to remove firejail profile file %s: %v", profileFile.Name(), removeErr)
+		if removeErr := os.Remove(profileFilePath); removeErr != nil {
+			r.logger.Debug("Warning: failed to remove firejail profile file %s: %v", profileFilePath, removeErr)
 		}
 
 		if err != nil {
