@@ -4,6 +4,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -455,4 +456,165 @@ func (r *Docker) createScriptFile(shell string, cmd string, env []string) (strin
 
 	r.logger.Debug("Created temporary script file at: %s", scriptPath)
 	return scriptPath, nil
+}
+
+// RunWithPipes executes a command with access to stdin/stdout/stderr pipes inside a Docker container.
+// It implements the Runner interface for interactive process communication with Docker isolation.
+//
+// This implementation creates a temporary container, runs the command with interactive mode,
+// and provides pipes for communication. All Docker restrictions (network, mounts, etc.) are applied.
+//
+// Note: For Docker, we use a different approach than Run(). We create a temporary long-running
+// container and use 'docker exec -i' to run the command interactively within it.
+func (r *Docker) RunWithPipes(ctx context.Context, cmd string, args []string, env []string, params map[string]interface{}) (
+	stdin io.WriteCloser,
+	stdout io.ReadCloser,
+	stderr io.ReadCloser,
+	wait func() error,
+	err error,
+) {
+	// Check if context is already done
+	select {
+	case <-ctx.Done():
+		return nil, nil, nil, nil, ctx.Err()
+	default:
+		// Continue execution
+	}
+
+	r.logger.Debug("RunWithPipes: executing command in Docker: %s with args: %v", cmd, args)
+
+	// First, create a long-running container that we can exec into
+	// We'll use a sleep command to keep the container alive
+	containerName := fmt.Sprintf("go-restricted-runner-%d", time.Now().UnixNano())
+
+	// Build docker run command for the background container
+	dockerRunArgs := []string{"run", "--name", containerName, "-d"}
+
+	// Add resource limits
+	if r.opts.Memory != "" {
+		dockerRunArgs = append(dockerRunArgs, "--memory", r.opts.Memory)
+	}
+	if r.opts.MemoryReservation != "" {
+		dockerRunArgs = append(dockerRunArgs, "--memory-reservation", r.opts.MemoryReservation)
+	}
+	if r.opts.MemorySwap != "" {
+		dockerRunArgs = append(dockerRunArgs, "--memory-swap", r.opts.MemorySwap)
+	}
+
+	// Add network configuration
+	if !r.opts.AllowNetworking {
+		dockerRunArgs = append(dockerRunArgs, "--network", "none")
+	} else if r.opts.Network != "" {
+		dockerRunArgs = append(dockerRunArgs, "--network", r.opts.Network)
+	}
+
+	// Add user if specified
+	if r.opts.User != "" {
+		dockerRunArgs = append(dockerRunArgs, "--user", r.opts.User)
+	}
+
+	// Add working directory if specified
+	if r.opts.WorkDir != "" {
+		dockerRunArgs = append(dockerRunArgs, "--workdir", r.opts.WorkDir)
+	}
+
+	// Add mounts
+	for _, mount := range r.opts.Mounts {
+		dockerRunArgs = append(dockerRunArgs, "-v", mount)
+	}
+
+	// Add environment variables
+	for _, envVar := range env {
+		dockerRunArgs = append(dockerRunArgs, "-e", envVar)
+	}
+
+	// Add the image and a sleep command to keep container alive
+	dockerRunArgs = append(dockerRunArgs, r.opts.Image, "sleep", "infinity")
+
+	r.logger.Debug("Creating background container: docker %v", dockerRunArgs)
+
+	// Create the container
+	createCmd := exec.CommandContext(ctx, "docker", dockerRunArgs...)
+	if output, err := createCmd.CombinedOutput(); err != nil {
+		r.logger.Debug("Failed to create container: %v, output: %s", err, string(output))
+		return nil, nil, nil, nil, fmt.Errorf("failed to create container: %w: %s", err, string(output))
+	}
+
+	r.logger.Debug("Created container: %s", containerName)
+
+	// Build the docker exec command with interactive mode
+	// docker exec -i <container> <cmd> <args...>
+	execArgs := []string{"exec", "-i", containerName, cmd}
+	execArgs = append(execArgs, args...)
+
+	r.logger.Debug("Executing in container: docker %v", execArgs)
+
+	execCmd := exec.CommandContext(ctx, "docker", execArgs...)
+
+	// Create pipes for stdin, stdout, and stderr
+	stdinPipe, err := execCmd.StdinPipe()
+	if err != nil {
+		// Clean up the container
+		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
+		cleanupCmd.Run()
+		r.logger.Debug("Failed to create stdin pipe: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	stdoutPipe, err := execCmd.StdoutPipe()
+	if err != nil {
+		stdinPipe.Close()
+		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
+		cleanupCmd.Run()
+		r.logger.Debug("Failed to create stdout pipe: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderrPipe, err := execCmd.StderrPipe()
+	if err != nil {
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
+		cleanupCmd.Run()
+		r.logger.Debug("Failed to create stderr pipe: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Start the exec command
+	r.logger.Debug("Starting docker exec command")
+	if err := execCmd.Start(); err != nil {
+		stdinPipe.Close()
+		stdoutPipe.Close()
+		stderrPipe.Close()
+		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
+		cleanupCmd.Run()
+		r.logger.Debug("Failed to start docker exec: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to start docker exec: %w", err)
+	}
+
+	r.logger.Debug("Docker exec started successfully")
+
+	// Create wait function that waits for the command to complete and cleans up the container
+	waitFunc := func() error {
+		r.logger.Debug("Waiting for docker exec to complete")
+		execErr := execCmd.Wait()
+
+		// Clean up the container
+		r.logger.Debug("Cleaning up container: %s", containerName)
+		cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
+		if cleanupOutput, cleanupErr := cleanupCmd.CombinedOutput(); cleanupErr != nil {
+			r.logger.Debug("Warning: failed to remove container %s: %v, output: %s", containerName, cleanupErr, string(cleanupOutput))
+		} else {
+			r.logger.Debug("Container %s removed successfully", containerName)
+		}
+
+		if execErr != nil {
+			r.logger.Debug("Docker exec completed with error: %v", execErr)
+			return execErr
+		}
+		r.logger.Debug("Docker exec completed successfully")
+		return nil
+	}
+
+	return stdinPipe, stdoutPipe, stderrPipe, waitFunc, nil
 }
