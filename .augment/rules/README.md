@@ -75,6 +75,15 @@ This directory contains focused rules files that are automatically loaded based 
 - Platform-specific runners
 - Cross-platform testing
 
+### 10-ci-linting.md
+**Loaded when**: Working with CI, linting, code quality, or fixing build failures
+- CI configuration and Go version management
+- Linting rules and errcheck patterns
+- Error checking strategy (when to log vs fail)
+- Fixing bulk linting errors
+- CI debugging workflow
+- Best practices for code quality
+
 ## How to Use These Rules
 
 The Augment AI assistant automatically loads relevant rules based on your prompt. You don't need to reference them explicitly.
@@ -92,6 +101,9 @@ The Augment AI assistant automatically loads relevant rules based on your prompt
 
 **Prompt**: "Update the README with examples"
 - Loads: 00-global.md, 08-documentation.md
+
+**Prompt**: "Fix the CI linting errors"
+- Loads: 00-global.md, 07-error-handling.md, 10-ci-linting.md
 
 ## Maintaining These Rules
 
@@ -158,6 +170,13 @@ What to avoid
 4. Aim for >80% coverage
 
 ## Recent Changes
+
+### 2026-02-07: CI and Linting Rules Added
+- Added 10-ci-linting.md with comprehensive CI/linting patterns
+- Updated 07-error-handling.md with proper error checking patterns
+- Documented errcheck violations and how to fix them
+- Added CI debugging workflow and best practices
+- Included bulk error fixing strategies
 
 ### 2026-02-07: Initial Rules Creation
 - Created comprehensive rules structure

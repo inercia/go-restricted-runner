@@ -80,15 +80,17 @@ type Runner interface {
 ## README.md Structure
 
 ### Main README.md
-Should include:
+Should be **concise and focused on getting started**. Include:
 1. Project title and description
 2. Installation instructions
 3. Quick start example
-4. Runner types overview
-5. API reference
-6. Links to detailed documentation
+4. Runner types overview (brief)
+5. API reference (condensed)
+6. **Links to detailed documentation in docs/**
 7. Development instructions
 8. License
+
+**Important**: Keep README.md under 300 lines. Move detailed content to docs/ directory.
 
 ### Example Structure
 ```markdown
@@ -113,17 +115,44 @@ go get github.com/inercia/go-restricted-runner
 - Docker - Container isolation
 
 ## Interactive Process Communication
-Explain RunWithPipes with examples
+Brief example with link to detailed guide:
+
+📖 For detailed documentation, see [Interactive Process Communication Guide](docs/run-with-pipes.md)
 
 ## API Reference
-Interface definitions
+Condensed interface definitions with link to docs/
 
 ## Development
 Build and test commands
 ```
 
-## Per-Runner Documentation
+**Key Pattern**: Use emoji 📖 to highlight links to detailed documentation.
 
+## Documentation Directory Structure
+
+```
+docs/
+├── README.md                    # Index of all documentation
+├── run-with-pipes.md           # Interactive process communication guide
+├── runner-exec.md              # Exec runner details
+├── runner-sandbox-exec.md      # SandboxExec runner details
+├── runner-firejail.md          # Firejail runner details
+└── runner-docker.md            # Docker runner details
+```
+
+### docs/README.md
+Should include:
+- Table of contents with links to all docs
+- Core concepts section (e.g., RunWithPipes)
+- Runner types table
+- Links to examples
+
+### Feature-Specific Documentation
+Create dedicated files for major features:
+- `docs/run-with-pipes.md` - Comprehensive guide for interactive processes
+- Include: when to use, examples, API reference, troubleshooting
+
+### Per-Runner Documentation
 Each runner should have detailed documentation in `docs/`:
 - `docs/runner-exec.md`
 - `docs/runner-sandbox-exec.md`

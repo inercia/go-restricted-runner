@@ -58,7 +58,7 @@ func (r *Exec) Run(ctx context.Context, ...) (string, error) {
 ```
 
 ### Pipe Creation Errors
-Clean up already-created resources on error:
+Clean up already-created resources on error **and check cleanup errors**:
 
 ```go
 stdinPipe, err := cmd.StdinPipe()
@@ -68,28 +68,53 @@ if err != nil {
 
 stdoutPipe, err := cmd.StdoutPipe()
 if err != nil {
-    stdinPipe.Close()  // Clean up stdin
+    // IMPORTANT: Check error from Close()
+    if closeErr := stdinPipe.Close(); closeErr != nil {
+        r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+    }
     return nil, nil, nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 }
 
 stderrPipe, err := cmd.StderrPipe()
 if err != nil {
-    stdinPipe.Close()   // Clean up both
-    stdoutPipe.Close()
+    // Clean up both pipes, checking errors
+    if closeErr := stdinPipe.Close(); closeErr != nil {
+        r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+    }
+    if closeErr := stdoutPipe.Close(); closeErr != nil {
+        r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+    }
     return nil, nil, nil, nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 }
 ```
 
+**Why check Close() errors?**
+- Linters (errcheck) require all error returns to be checked
+- Close() can fail (e.g., broken pipe, resource exhaustion)
+- Logging warnings helps with debugging
+- Don't fail the operation on cleanup errors - just log them
+
 ### Command Start Errors
-Clean up all resources if start fails:
+Clean up all resources if start fails **with proper error checking**:
 
 ```go
 if err := cmd.Start(); err != nil {
-    stdinPipe.Close()
-    stdoutPipe.Close()
-    stderrPipe.Close()
+    // Clean up all pipes, checking errors
+    if closeErr := stdinPipe.Close(); closeErr != nil {
+        r.logger.Debug("Warning: failed to close stdin pipe: %v", closeErr)
+    }
+    if closeErr := stdoutPipe.Close(); closeErr != nil {
+        r.logger.Debug("Warning: failed to close stdout pipe: %v", closeErr)
+    }
+    if closeErr := stderrPipe.Close(); closeErr != nil {
+        r.logger.Debug("Warning: failed to close stderr pipe: %v", closeErr)
+    }
+
     // Also clean up temp files, containers, etc.
-    os.Remove(tempFile)
+    if removeErr := os.Remove(tempFile); removeErr != nil {
+        r.logger.Debug("Warning: failed to remove temp file: %v", removeErr)
+    }
+
     return nil, nil, nil, nil, fmt.Errorf("failed to start command: %w", err)
 }
 ```
@@ -159,34 +184,38 @@ func (r *Exec) RunWithPipes(...) (...) {
 ```
 
 ### Docker Container Cleanup
-Always clean up containers, even on errors:
+Always clean up containers, even on errors **with proper error checking**:
 
 ```go
 // Create container
 containerName := "go-restricted-runner-123"
 createCmd.Run()
 
-// On any error after creation
+// On any error after creation - CHECK cleanup errors
 if err != nil {
     cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
-    cleanupCmd.Run()  // Ignore cleanup errors
+    if cleanupErr := cleanupCmd.Run(); cleanupErr != nil {
+        r.logger.Debug("Warning: failed to cleanup container during error handling: %v", cleanupErr)
+    }
     return nil, nil, nil, nil, err
 }
 
-// In wait function
+// In wait function - CHECK cleanup errors
 waitFunc := func() error {
     execErr := cmd.Wait()
-    
+
     // Always clean up container
     cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
     if cleanupOutput, cleanupErr := cleanupCmd.CombinedOutput(); cleanupErr != nil {
-        r.logger.Debug("Warning: failed to remove container: %v, output: %s", 
+        r.logger.Debug("Warning: failed to remove container: %v, output: %s",
             cleanupErr, string(cleanupOutput))
     }
-    
+
     return execErr  // Return original error, not cleanup error
 }
 ```
+
+**Critical Pattern**: Always check cleanup errors but don't let them override the original error.
 
 ## Error Types and Handling
 
