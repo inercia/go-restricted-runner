@@ -117,6 +117,12 @@ func (r *Landrun) buildLandlockRules(params map[string]interface{}) ([]landlock.
 
 	// Add filesystem rules
 	if !r.options.UnrestrictedFilesystem {
+		// Always allow access to /dev and /tmp for basic system operations
+		// /dev is required for process execution and I/O operations
+		// /tmp is required for temporary files used by tests and commands
+		r.logger.Debug("Adding read-write access to /dev and /tmp for system operations")
+		rules = append(rules, landlock.RWDirs("/dev", "/tmp"))
+
 		if len(allowReadFolders) > 0 {
 			r.logger.Debug("Adding read-only access to: %v", allowReadFolders)
 			rules = append(rules, landlock.RODirs(allowReadFolders...))
